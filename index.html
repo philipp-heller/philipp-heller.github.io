@@ -1,12 +1,194 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="de">
 <head>
-  <title>MAC Converter</title>
-  <!-- <link rel="stylesheet" href="style/style.css"> -->
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<style>
+		:root{
+			--bg: rgba(0,0,0,.62);
+			--fg:#fff;
+			--muted:rgba(255,255,255,.75);
+			--ok: rgba(140,255,170,.95);
+			--bad: rgba(255,120,120,.95);
+		}
+		body{
+			margin:0;
+			background:transparent;
+			font-family: Arial, system-ui, sans-serif;
+			color:var(--fg);
+		}
+		.card{
+			display:inline-block;
+			padding:18px 22px;
+			border-radius:18px;
+			background:var(--bg);
+			box-shadow:0 10px 36px rgba(0,0,0,.45);
+			min-width: 720px;
+		}
+		.grid{
+			display:grid;
+			grid-template-columns: 1fr 1fr;
+			column-gap: 42px;
+			row-gap: 10px;
+			align-items:start;
+		}
+		.item{
+			display:flex;
+			gap:10px;
+			align-items:baseline;
+			white-space:nowrap;
+		}
+		.label{
+			color:var(--muted);
+			font-size:16px;
+			min-width: 110px;
+		}
+		.value{
+			font-size:24px;
+			font-weight:800;
+		}
+		.subrow{
+			margin-top:10px;
+			display:flex;
+			justify-content:space-between;
+			gap:14px;
+			font-size:13px;
+			color:rgba(255,255,255,.60);
+			align-items:center;
+		}
+		.pill{
+			display:inline-block;
+			padding:4px 10px;
+			border-radius:999px;
+			background:rgba(255,255,255,.10);
+			color:rgba(255,255,255,.75);
+			font-size:13px;
+			white-space:nowrap;
+		}
+		.gain-pos{ color:var(--ok); }
+		.gain-neg{ color:var(--bad); }
+	</style>
 </head>
 <body>
-    <div>
-        <h1>This is a chicken dinner</h1>
-    </div>
-</body>
+	<div style="position:absolute; top:10px; left:10px; z-index:999;">
+		<select id="sourceSelect" style="
+			background: rgba(0,0,0,0.6);
+			color: #fff;
+			border: 1px solid rgba(255,255,255,0.3);
+			border-radius: 8px;
+			padding: 6px 10px;
+			font-size: 14px;
+			">
+			<option value="Caedrel">Caedrel</option>
+			<option value="Heller">Heller</option>
+		</select>
+	</div>
+	<div class="card">
+		<div class="grid">
+			<div class="item"><span class="label">CH cutoff</span><span class="value" id="ch">…</span></div>
+			<div class="item" style="justify-content:flex-end;"><span class="label">GM cutoff</span><span class="value" id="gm">…</span></div>
+			<div class="item"><span class="label" id="wrLabel">WR</span><span class="value" id="wr">…</span></div>
+			<div class="item" style="justify-content:flex-end;"><span class="label">Rank</span><span class="value" id="rank">…</span></div>
+			<div class="item"><span class="label" id="gainLabel">LP gains</span><span class="value" id="gain">…</span></div>
+			<div class="item" style="justify-content:flex-end;"><span class="label">Peak/Low</span><span class="value" id="peaklow">…</span></div>
+		</div>
+		<div class="subrow">
+			<div id="updated">Updated: …</div>
+			<div>
+				<span class="pill" id="mode">Mode: …</span>
+				<span class="pill" id="delay">Delay: …</span>
+			</div>
+			<div id="status"></div>
+		</div>
+	</div>
+	<script>
+		// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+		// SET THIS:
+		// If you're using DynDNS + port-forward:
+		// const STATS_URL = "https://yourdomain.tld/stats?token=wwTKaijIbyjZ8ab2Fv0W3WMUMo9deMT9Ra79qkJGPmIEpH05HMmpW1cHz1yzGYfz";
+		// or
+		// const STATS_URL = "http://heller-dungeon.ddns.me:8787/stats?token=wwTKaijIbyjZ8ab2Fv0W3WMUMo9deMT9Ra79qkJGPmIEpH05HMmpW1cHz1yzGYfz";
+		//
+		// Local test:
+		// const STATS_URL = "http://127.0.0.1:8787/stats?token=wwTKaijIbyjZ8ab2Fv0W3WMUMo9deMT9Ra79qkJGPmIEpH05HMmpW1cHz1yzGYfz";
+		// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+		// const STATS_URL = "http://127.0.0.1:8787/stats?token=wwTKaijIbyjZ8ab2Fv0W3WMUMo9deMT9Ra79qkJGPmIEpH05HMmpW1cHz1yzGYfz";
+
+		const PRESETS = {
+			Caedrel: {
+				url: "http://heller-dungeon.ddns.me:8787/stats?token=wwTKaijIbyjZ8ab2Fv0W3WMUMo9deMT9Ra79qkJGPmIEpH05HMmpW1cHz1yzGYfz"
+			},
+			Heller: {
+				url: "http://heller-dungeon.ddns.me:8788/stats?token=JpX1UJpDwmG2qT7kz0to95W8hUilroJaj6zELUF9OIMQiQVq3yk6EXqLGbuUiraz"
+			}
+		};
+
+		let STATS_URL = PRESETS["Caedrel"].url;
+		
+		const sel = document.getElementById("sourceSelect");
+		sel.addEventListener("change", () => {
+			const key = sel.value;
+			STATS_URL = PRESETS[key].url;
+			tick();
+		});
+
+
+		const fmtLP = (x)=> (x===null||x===undefined) ? "?" : `${x} LP`;
+		const wrText = (w,l)=>{
+		w = Number(w ?? 0); l = Number(l ?? 0);
+		const g = w + l;
+		const wr = g > 0 ? Math.round((w/g)*100) : 0;
+		return `${wr}% (${w}W/${l}L)`;
+		};
+		const gainText = (n)=> (n===null||n===undefined) ? "?" : (Number(n)>=0 ? `+${n}` : `${n}`);
+		const gainClass = (n)=> (n===null||n===undefined) ? "" : (Number(n)>=0 ? "gain-pos" : "gain-neg");
+
+		async function tick(){
+			const statusEl = document.getElementById("status");
+			try{
+				const res = await fetch(STATS_URL, { cache:"no-store" });
+				const s = await res.json();
+
+				if(s.status !== "ok"){
+					statusEl.textContent = s.error ? `Error: ${s.error}` : "Error";
+					statusEl.style.color = "rgba(255,140,140,.95)";
+					return;
+				} else {
+					statusEl.textContent = "";
+				}
+
+				document.getElementById("ch").textContent = fmtLP(s.challenger_cutoff_lp);
+				document.getElementById("gm").textContent = fmtLP(s.grandmaster_cutoff_lp);
+
+				const mode = s.mode ?? "?";
+				document.getElementById("mode").textContent = `Mode: ${mode}`;
+				document.getElementById("delay").textContent = `Delay: ${s.delay_seconds ?? "?"}s`;
+
+				document.getElementById("wrLabel").textContent = (mode === "daily") ? "Daily WR" : "Session WR";
+				document.getElementById("wr").textContent = wrText(s.wins, s.losses);
+
+				const tier = s.tier ?? "";
+				const rank = s.rank ?? "";
+				const lp = s.current_lp;
+				document.getElementById("rank").textContent =
+					(tier && rank && lp!==null && lp!==undefined) ? `${tier} ${rank} – ${lp} LP` : "–";
+
+				document.getElementById("gainLabel").textContent = (mode === "daily") ? "Daily LP gains" : "Session LP gains";
+				const gainEl = document.getElementById("gain");
+				gainEl.textContent = gainText(s.lp_gain);
+				gainEl.className = `value ${gainClass(s.lp_gain)}`;
+
+				document.getElementById("peaklow").textContent = `Peak ${fmtLP(s.peak_lp)} | Low ${fmtLP(s.lowest_lp)}`;
+				document.getElementById("updated").textContent = `Updated: ${s.updated_at ?? "?"}`;
+			} catch(e){
+				statusEl.textContent = "Fetch failed";
+				statusEl.style.color = "rgba(255,140,140,.95)";
+				console.error(e);
+			}
+		}
+
+		tick();
+		setInterval(tick, 5000);
+	</script>
+	</body>
 </html>
